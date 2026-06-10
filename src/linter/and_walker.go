@@ -162,7 +162,7 @@ func (a *andWalker) EnterNode(w ir.Node) (res bool) {
 					trueType, falseType = falseType, trueType
 				}
 
-				a.applyNarrowing(varNode, trueType, falseType, "instanceof")
+				a.applyNarrowing(varNode, trueType, falseType, "instanceof", true)
 
 			default:
 				currentType := a.exprType(v)
@@ -256,8 +256,11 @@ func (a *andWalker) isChainedNarrowing(varNode ir.Node) bool {
 		a.trueContext.sc.HaveImplicitVar(varNode)
 }
 
-func (a *andWalker) applyNarrowing(varNode ir.Node, trueType, falseType types.Map, reason string) {
-	flags := meta.VarAlwaysDefined | meta.VarImplicit
+func (a *andWalker) applyNarrowing(varNode ir.Node, trueType, falseType types.Map, reason string, implicit bool) {
+	flags := meta.VarAlwaysDefined
+	if implicit {
+		flags |= meta.VarImplicit
+	}
 	if a.isChainedNarrowing(varNode) {
 		if a.inNot {
 			a.trueContext.sc.ReplaceVar(varNode, trueType, reason, flags)
@@ -325,7 +328,7 @@ func (a *andWalker) handleVariableCondition(variable *ir.SimpleVar) {
 		trueType, falseType = falseType, trueType
 	}
 
-	a.applyNarrowing(variable, trueType, falseType, "type narrowing for "+variable.Name)
+	a.applyNarrowing(variable, trueType, falseType, "type narrowing for "+variable.Name, false)
 }
 
 func (a *andWalker) handleTypeCheckCondition(expectedType string, args []ir.Node) {
@@ -401,7 +404,7 @@ func (a *andWalker) handleTypeCheckCondition(expectedType string, args []ir.Node
 			trueType, falseType = falseType, trueType
 		}
 
-		a.applyNarrowing(variable, trueType, falseType, "type narrowing for "+expectedType)
+		a.applyNarrowing(variable, trueType, falseType, "type narrowing for "+expectedType, true)
 	}
 }
 
@@ -437,7 +440,7 @@ func (a *andWalker) handleConditionSafety(left ir.Node, right ir.Node, identical
 			trueType = clearType
 			falseType = currentType.Erase(clearType.String())
 		}
-		a.applyNarrowing(variable, trueType, falseType, "type narrowing")
+		a.applyNarrowing(variable, trueType, falseType, "type narrowing", true)
 		return
 	}
 }
