@@ -2372,22 +2372,13 @@ func (b *blockWalker) handleIf(s *ir.IfStmt) bool {
 	var linksCount int
 	var contexts []*blockContext
 
-	onlyInstanceof := true
 	// Add all new variables from the condition to the current scope.
 	irutil.Inspect(s.Cond, func(n ir.Node) bool {
 		switch n := n.(type) {
-		case *ir.BooleanAndExpr:
-		case *ir.BooleanOrExpr:
-		case *ir.BooleanNotExpr:
-			return true
-		case *ir.InstanceOfExpr:
-			return false
-
 		case *ir.Assign:
 			b.handleAssign(n)
 			return false
 		default:
-			onlyInstanceof = false
 		}
 
 		return true
@@ -2427,14 +2418,15 @@ func (b *blockWalker) handleIf(s *ir.IfStmt) bool {
 			linksCount++
 		}
 
-		// Case:
-		// if (!$a instanceof Boo) {
-		//   return
-		// }
+		// When the if body always exits (return/continue/throw/etc.) and there is no
+		// else branch, the code after this if runs only when the condition is false.
+		// Propagate type narrowing from falseContext into the current scope.
 		//
-		// $a has Boo type
-		if trueContext.exitFlags != 0 && onlyInstanceof && len(s.ElseIf) == 0 && s.Else == nil {
-			b.ctx = falseContext
+		// Examples:
+		//   if ($v === null) { continue; }  // $v is non-null below
+		//   if (!$a instanceof A) { return; } // $a is A below
+		if trueContext.exitFlags != 0 && len(s.ElseIf) == 0 && s.Else == nil {
+			b.applyGuardedContext(falseContext)
 		}
 
 		b.replaceAllImplicitVars(trueContext, initialContext)
@@ -2512,6 +2504,20 @@ func (b *blockWalker) handleIf(s *ir.IfStmt) bool {
 	b.extractVariablesTo(b.ctx, contexts, linksCount)
 
 	return false
+}
+
+// applyGuardedContext copies implicitly narrowed variables from the
+// "condition is false" context into the current context.
+// Used after guard ifs (return/continue/throw in the then-branch)
+// so code below the if sees narrowed types.
+func (b *blockWalker) applyGuardedContext(guardedContext *blockContext) {
+	guardedContext.sc.Iterate(func(name string, typ types.Map, flags meta.VarFlags) {
+		if !flags.IsImplicit() {
+			return
+		}
+		flags &^= meta.VarImplicit
+		b.ctx.sc.ReplaceVarName(name, typ, "guard", flags|meta.VarAlwaysDefined)
+	})
 }
 
 // replaceAllImplicitVars replaces any implicit variables that were added by

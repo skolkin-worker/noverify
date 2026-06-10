@@ -472,9 +472,6 @@ WARNING notNullSafetyFunctionArgumentVariable: not null safety call in function 
 WARNING notNullSafetyFunctionArgumentVariable: not null safety call in function invokePluginOnFilesystem signature of param prefix at testdata/flysystem/src/MountManager.php:166
         return $this->invokePluginOnFilesystem($method, $arguments, $prefix);
                                                                     ^^^^^^^
-WARNING notSafeCall: potentially not safe call in function writeStream signature of param resource at testdata/flysystem/src/MountManager.php:192
-        $result = $this->getFilesystem($prefixTo)->writeStream($to, $buffer, $config);
-                                                                    ^^^^^^^
 WARNING notNullSafetyFunctionArgumentArrayDimFetch: potential null array access in parameter visibility of function setVisibility at testdata/flysystem/src/MountManager.php:243
                 return $filesystem->setVisibility($pathTo, $config['visibility']);
                                                            ^^^^^^^^^^^^^^^^^^^^^

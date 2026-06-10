@@ -145,6 +145,9 @@ func (a *andWalker) EnterNode(w ir.Node) (res bool) {
 				// context later.
 				a.b.handleVariable(varNode)
 
+				// Unlike other narrowing handlers, instanceof chained checks
+				// accumulate true types via Append and always use falseContext
+				// (not trueContext) as the base for Erase on the false branch.
 				var currentType types.Map
 				if a.inNot {
 					currentType = a.exprTypeInContext(a.trueContext, varNode)
@@ -159,32 +162,7 @@ func (a *andWalker) EnterNode(w ir.Node) (res bool) {
 					trueType, falseType = falseType, trueType
 				}
 
-				// If the variable has already been created, then we analyze the next instanceof.
-				if (irutil.IsBoolAnd(a.path.Current()) || irutil.IsBoolOr(a.path.Current())) &&
-					a.trueContext.sc.HaveImplicitVar(varNode) {
-
-					if a.inNot {
-						flags := meta.VarAlwaysDefined | meta.VarImplicit
-						a.trueContext.sc.ReplaceVar(varNode, trueType, "instanceof true", flags)
-
-						varInFalse, _ := a.falseContext.sc.GetVar(varNode)
-						varInFalse.Type = varInFalse.Type.Append(falseType)
-					} else {
-						// The types in trueContext must be concatenated.
-						varInTrue, _ := a.trueContext.sc.GetVar(varNode)
-						varInTrue.Type = varInTrue.Type.Append(trueType)
-
-						// And in falseContext, on the contrary, they are replaced,
-						// since there are only types that are not in trueContext.
-						flags := meta.VarAlwaysDefined | meta.VarImplicit
-						a.falseContext.sc.ReplaceVar(varNode, falseType, "instanceof false", flags)
-					}
-
-				} else {
-					flags := meta.VarAlwaysDefined | meta.VarImplicit
-					a.trueContext.sc.ReplaceVar(varNode, trueType, "instanceof true", flags)
-					a.falseContext.sc.ReplaceVar(varNode, falseType, "instanceof false", flags)
-				}
+				a.applyNarrowing(varNode, trueType, falseType, "instanceof")
 
 			default:
 				currentType := a.exprType(v)
@@ -219,6 +197,14 @@ func (a *andWalker) EnterNode(w ir.Node) (res bool) {
 		a.handleConditionSafety(n.Left, n.Right, true)
 		a.handleConditionSafety(n.Right, n.Left, true)
 
+	case *ir.EqualExpr:
+		a.handleConditionSafety(n.Left, n.Right, true)
+		a.handleConditionSafety(n.Right, n.Left, true)
+
+	case *ir.NotEqualExpr:
+		a.handleConditionSafety(n.Left, n.Right, false)
+		a.handleConditionSafety(n.Right, n.Left, false)
+
 	case *ir.BooleanNotExpr:
 		a.inNot = true
 
@@ -247,17 +233,56 @@ func (a *andWalker) EnterNode(w ir.Node) (res bool) {
 	return res
 }
 
+// currentTypeForNarrowing returns the variable type that should be used as a base
+// for narrowing in the current condition context.
+//
+// Inside `&&`, the right-hand side must use types already narrowed by the left-hand side.
+// Inside `||`, the right-hand side must use types from the branch where the left-hand side failed.
+func (a *andWalker) currentTypeForNarrowing(n ir.Node) types.Map {
+	if a.inNot {
+		return a.exprTypeInContext(a.trueContext, n)
+	}
+	if irutil.IsBoolAnd(a.path.Current()) {
+		return a.exprTypeInContext(a.trueContext, n)
+	}
+	if irutil.IsBoolOr(a.path.Current()) {
+		return a.exprTypeInContext(a.falseContext, n)
+	}
+	return a.exprTypeInContext(a.falseContext, n)
+}
+
+func (a *andWalker) isChainedNarrowing(varNode ir.Node) bool {
+	return (irutil.IsBoolAnd(a.path.Current()) || irutil.IsBoolOr(a.path.Current())) &&
+		a.trueContext.sc.HaveImplicitVar(varNode)
+}
+
+func (a *andWalker) applyNarrowing(varNode ir.Node, trueType, falseType types.Map, reason string) {
+	flags := meta.VarAlwaysDefined | meta.VarImplicit
+	if a.isChainedNarrowing(varNode) {
+		if a.inNot {
+			a.trueContext.sc.ReplaceVar(varNode, trueType, reason, flags)
+			if varInFalse, ok := a.falseContext.sc.GetVar(varNode); ok {
+				varInFalse.Type = varInFalse.Type.Append(falseType)
+			}
+		} else {
+			if varInTrue, ok := a.trueContext.sc.GetVar(varNode); ok {
+				varInTrue.Type = varInTrue.Type.Append(trueType)
+			}
+			a.falseContext.sc.ReplaceVar(varNode, falseType, reason, flags)
+		}
+		return
+	}
+
+	a.trueContext.sc.ReplaceVar(varNode, trueType, reason, flags)
+	a.falseContext.sc.ReplaceVar(varNode, falseType, reason, flags)
+}
+
 func (a *andWalker) handleVariableCondition(variable *ir.SimpleVar) {
 	if !a.b.ctx.sc.HaveVar(variable) {
 		return
 	}
 
-	currentType := a.exprType(variable) // nolint:staticcheck
-	if a.inNot {
-		currentType = a.exprTypeInContext(a.trueContext, variable)
-	} else {
-		currentType = a.exprTypeInContext(a.falseContext, variable)
-	}
+	currentType := a.currentTypeForNarrowing(variable)
 
 	var trueType, falseType types.Map
 
@@ -300,8 +325,7 @@ func (a *andWalker) handleVariableCondition(variable *ir.SimpleVar) {
 		trueType, falseType = falseType, trueType
 	}
 
-	a.trueContext.sc.ReplaceVar(variable, trueType, "type narrowing for "+variable.Name, meta.VarAlwaysDefined)
-	a.falseContext.sc.ReplaceVar(variable, falseType, "type narrowing for "+variable.Name, meta.VarAlwaysDefined)
+	a.applyNarrowing(variable, trueType, falseType, "type narrowing for "+variable.Name)
 }
 
 func (a *andWalker) handleTypeCheckCondition(expectedType string, args []ir.Node) {
@@ -319,13 +343,7 @@ func (a *andWalker) handleTypeCheckCondition(expectedType string, args []ir.Node
 		// will be added to the context later
 		a.b.handleVariable(variable)
 
-		// Get the current type of the variable from the appropriate context
-		currentType := a.exprType(variable) // nolint:staticcheck
-		if a.inNot {
-			currentType = a.exprTypeInContext(a.trueContext, variable)
-		} else {
-			currentType = a.exprTypeInContext(a.falseContext, variable)
-		}
+		currentType := a.currentTypeForNarrowing(variable)
 
 		var trueType, falseType types.Map
 
@@ -369,8 +387,13 @@ func (a *andWalker) handleTypeCheckCondition(expectedType string, args []ir.Node
 				falseType = falseType.Erase(k)
 			}
 		default:
-			// Standard logic for other types
-			trueType = types.NewMap(expectedType)
+			expected := types.NewMap(expectedType)
+			intersection := currentType.Intersect(expected)
+			if intersection.Empty() {
+				trueType = expected
+			} else {
+				trueType = intersection
+			}
 			falseType = currentType.Clone().Erase(expectedType)
 		}
 
@@ -378,8 +401,7 @@ func (a *andWalker) handleTypeCheckCondition(expectedType string, args []ir.Node
 			trueType, falseType = falseType, trueType
 		}
 
-		a.trueContext.sc.ReplaceVar(variable, trueType, "type narrowing for "+expectedType, meta.VarAlwaysDefined)
-		a.falseContext.sc.ReplaceVar(variable, falseType, "type narrowing for "+expectedType, meta.VarAlwaysDefined)
+		a.applyNarrowing(variable, trueType, falseType, "type narrowing for "+expectedType)
 	}
 }
 
@@ -399,27 +421,23 @@ func (a *andWalker) handleConditionSafety(left ir.Node, right ir.Node, identical
 	// context later.
 	a.b.handleVariable(variable)
 
-	currentVar, isGotVar := a.b.ctx.sc.GetVar(variable)
-	if !isGotVar {
+	if !a.b.ctx.sc.HaveVar(variable) {
 		return
 	}
 
-	var currentType types.Map
-	if a.inNot {
-		currentType = a.exprTypeInContext(a.trueContext, variable)
-	} else {
-		currentType = a.exprTypeInContext(a.falseContext, variable)
-	}
+	currentType := a.currentTypeForNarrowing(variable)
 
 	if constValue.Constant.Value == "false" || constValue.Constant.Value == "null" {
 		clearType := currentType.Erase(constValue.Constant.Value)
+		var trueType, falseType types.Map
 		if identical {
-			a.trueContext.sc.ReplaceVar(variable, currentType.Erase(clearType.String()), "type narrowing", currentVar.Flags)
-			a.falseContext.sc.ReplaceVar(variable, clearType, "type narrowing", currentVar.Flags)
+			trueType = currentType.Erase(clearType.String())
+			falseType = clearType
 		} else {
-			a.trueContext.sc.ReplaceVar(variable, clearType, "type narrowing", currentVar.Flags)
-			a.falseContext.sc.ReplaceVar(variable, currentType.Erase(clearType.String()), "type narrowing", currentVar.Flags)
+			trueType = clearType
+			falseType = currentType.Erase(clearType.String())
 		}
+		a.applyNarrowing(variable, trueType, falseType, "type narrowing")
 		return
 	}
 }
