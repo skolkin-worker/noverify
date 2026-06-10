@@ -1857,7 +1857,7 @@ func (b *blockWalker) handleCompactCallArgs(args []ir.Node) {
 }
 
 func (b *blockWalker) handleMethodCall(e *ir.MethodCallExpr) bool {
-	call := resolveMethodCall(b.ctx.sc, b.r.ctx.st, b.ctx.customTypes, e, b.r.strictMixed)
+	call := resolveMethodCall(b.ctx.sc, b.r.ctx.st, b.r.meta.Classes, b.ctx.customTypes, e, b.r.strictMixed)
 
 	e.Variable.Walk(b)
 	e.Method.Walk(b)
