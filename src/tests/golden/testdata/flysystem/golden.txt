@@ -277,12 +277,6 @@ WARNING notNullSafetyFunctionArgumentVariable: not null safety call in function 
 WARNING notNullSafetyFunctionArgumentVariable: not null safety call in function stream_copy_to_stream signature of param from at testdata/flysystem/src/Adapter/Local.php:159
         if ( ! $stream || stream_copy_to_stream($resource, $stream) === false || ! fclose($stream)) {
                                                 ^^^^^^^^^
-WARNING notSafeCall: potentially not safe call in function stream_copy_to_stream signature of param to at testdata/flysystem/src/Adapter/Local.php:159
-        if ( ! $stream || stream_copy_to_stream($resource, $stream) === false || ! fclose($stream)) {
-                                                           ^^^^^^^
-WARNING notSafeCall: potentially not safe call in function fclose signature of param stream at testdata/flysystem/src/Adapter/Local.php:159
-        if ( ! $stream || stream_copy_to_stream($resource, $stream) === false || ! fclose($stream)) {
-                                                                                          ^^^^^^^
 WARNING notNullSafetyFunctionArgumentVariable: not null safety call in function applyPathPrefix signature of param path at testdata/flysystem/src/Adapter/Local.php:179
         $location = $this->applyPathPrefix($path);
                                            ^^^^^
