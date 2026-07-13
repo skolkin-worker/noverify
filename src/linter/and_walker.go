@@ -95,7 +95,9 @@ func (a *andWalker) EnterNode(w ir.Node) (res bool) {
 	case *ir.BooleanAndExpr:
 		a.path.Push(n)
 		n.Left.Walk(a)
-		n.Right.Walk(a)
+		a.b.withSpecificContext(a.trueContext, func() {
+			n.Right.Walk(a)
+		})
 		a.path.Pop()
 
 		a.runRules(w)
@@ -103,7 +105,9 @@ func (a *andWalker) EnterNode(w ir.Node) (res bool) {
 	case *ir.BooleanOrExpr:
 		a.path.Push(n)
 		n.Left.Walk(a)
-		n.Right.Walk(a)
+		a.b.withSpecificContext(a.falseContext, func() {
+			n.Right.Walk(a)
+		})
 		a.path.Pop()
 
 		a.runRules(w)

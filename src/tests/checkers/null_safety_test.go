@@ -649,3 +649,81 @@ function processTask(int $taskId): void {
 	}
 	test.RunAndMatch()
 }
+
+func TestInstanceofOrConditionNullSafety(t *testing.T) {
+	test := linttest.NewSuite(t)
+	test.AddFile(`<?php
+class BaseEvent {
+    /** @return bool */
+    public function show(): bool {
+        return true;
+    }
+}
+
+class ReviewEvent extends BaseEvent {}
+
+/** @return BaseEvent|null */
+function createEvent() {
+    return rand(0, 1) ? new ReviewEvent() : null;
+}
+
+$event = createEvent();
+
+if (!$event instanceof ReviewEvent || !$event->show()) {
+    return;
+}
+
+if (!($event instanceof ReviewEvent) || !$event->show()) {
+    return;
+}
+`)
+	test.Expect = []string{}
+	test.RunAndMatch()
+}
+
+func TestNullableMethodCallWithoutInstanceofGuard(t *testing.T) {
+	test := linttest.NewSuite(t)
+	test.AddFile(`<?php
+class BaseEvent {
+    /** @return bool */
+    public function show(): bool {
+        return true;
+    }
+}
+
+class ReviewEvent extends BaseEvent {}
+
+function handleEvent(?BaseEvent $event): void {
+    $event->show();
+}
+`)
+	test.Expect = []string{
+		"potential null dereference in event when accessing method",
+	}
+	test.RunAndMatch()
+}
+
+func TestInstanceofOrConditionDoesNotNarrowOtherVariable(t *testing.T) {
+	test := linttest.NewSuite(t)
+	test.AddFile(`<?php
+class BaseEvent {
+    /** @return bool */
+    public function show(): bool {
+        return true;
+    }
+}
+
+class ReviewEvent extends BaseEvent {}
+
+function handleEvents(?BaseEvent $event, ?BaseEvent $other): void {
+    if (!$event instanceof ReviewEvent || !$other->show()) {
+        return;
+    }
+}
+`)
+	test.Expect = []string{
+		"potential null dereference in other when accessing method",
+		"potential null dereference in other when accessing method",
+	}
+	test.RunAndMatch()
+}
