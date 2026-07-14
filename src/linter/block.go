@@ -648,6 +648,13 @@ func (b *blockWalker) checkDiffPhpDocWithTypeHints(
 		return
 	}
 
+	if typeValue == "array" {
+		if !b.isPHPDocArrayTypeCompatible(doc) {
+			report()
+		}
+		return
+	}
+
 	// 8) Union
 	if strings.Contains(doc, "|") {
 		parts := strings.Split(doc, "|")
@@ -684,10 +691,6 @@ func (b *blockWalker) checkDiffPhpDocWithTypeHints(
 
 	// 9) Single/general: array / boolean / 1-1 / alias
 	switch {
-	case typeValue == "array":
-		if doc != "array" && !strings.HasSuffix(doc, "[]") {
-			report()
-		}
 	case types.IsBoolean(doc) && types.IsBoolean(typeValue):
 		// ok
 	case doc == typeValue:
@@ -697,6 +700,32 @@ func (b *blockWalker) checkDiffPhpDocWithTypeHints(
 	default:
 		report()
 	}
+}
+
+func (b *blockWalker) isPHPDocArrayTypeCompatible(doc string) bool {
+	parsedType := b.r.ctx.phpdocTypeParser.Parse(doc)
+	if parsedType.IsEmpty() {
+		return false
+	}
+
+	converted := phpdoctypes.ToRealType(nil, b.r.config.KPHP, parsedType)
+	typMap := types.NewMapWithNormalization(types.NewNormalizer(nil, b.r.config.KPHP), converted.Types)
+	if typMap.Empty() {
+		return false
+	}
+
+	arrayTypes := 0
+	for _, typ := range typMap.Keys() {
+		if typ == "null" {
+			return false
+		}
+		if len(typ) == 0 || typ[0] != types.WArrayOf {
+			return false
+		}
+		arrayTypes++
+	}
+
+	return arrayTypes != 0
 }
 
 func (b *blockWalker) CheckParamNullability(params []ir.Node, phpDocParamTypes map[string]string) {
@@ -1946,7 +1975,9 @@ func (b *blockWalker) handleForeach(s *ir.ForeachStmt) bool {
 	// foreach body can do 0 cycles so we need a separate context for that
 	if s.Stmt != nil {
 		ctx := b.withNewContext(func() {
+			inferredValueType := false
 			solver.ExprTypeLocalCustom(b.ctx.sc, b.r.ctx.st, s.Expr, b.ctx.customTypes).Iterate(func(typ string) {
+				inferredValueType = true
 				b.handleVariableNode(s.Variable, types.NewMap(types.WrapElemOf(typ)), "foreach_value")
 			})
 
@@ -1955,7 +1986,7 @@ func (b *blockWalker) handleForeach(s *ir.ForeachStmt) bool {
 				for _, item := range list.Items {
 					b.handleVariableNode(item.Val, types.Map{}, "foreach_value")
 				}
-			} else {
+			} else if !inferredValueType {
 				b.handleVariableNode(s.Variable, types.Map{}, "foreach_value")
 			}
 
