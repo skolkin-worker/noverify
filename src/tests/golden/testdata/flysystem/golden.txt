@@ -457,9 +457,6 @@ WARNING notExplicitNullableParam: parameter with null default value should be ex
 WARNING notSafeCall: potentially not safe call in function mountFilesystem signature of param prefix at testdata/flysystem/src/MountManager.php:57
             $this->mountFilesystem($prefix, $filesystem);
                                    ^^^^^^^
-WARNING notNullSafetyFunctionArgumentVariable: not null safety call in function mountFilesystem signature of param filesystem at testdata/flysystem/src/MountManager.php:57
-            $this->mountFilesystem($prefix, $filesystem);
-                                            ^^^^^^^^^^^
 WARNING notNullSafetyFunctionArgumentVariable: not null safety call in function getPrefixAndPath signature of param path at testdata/flysystem/src/MountManager.php:123
         list($prefix, $path) = $this->getPrefixAndPath($path);
                                                        ^^^^^
