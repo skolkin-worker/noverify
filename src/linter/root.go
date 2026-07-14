@@ -549,13 +549,21 @@ func (d *rootWalker) parseFuncParams(params []ir.Node, docblockParams phpdoctype
 		}
 
 		// Append @param type.
+		scopeParamType := paramType
 		if !docType.Typ.Empty() {
-			paramType = paramType.Append(docType.Typ)
+			if paramType.IsLazyArrayOf("mixed") && docType.Typ.IsLazyArray() {
+				scopeParamType = docType.Typ
+				paramType = paramType.Append(docType.Typ)
+			} else {
+				paramType = paramType.Append(docType.Typ)
+				scopeParamType = paramType
+			}
 		}
 
 		paramTypeAware := attributes.TypeAware(param.AttrGroups, d.ctx.st)
 		if !paramTypeAware.Empty() {
 			paramType = paramType.Append(paramTypeAware)
+			scopeParamType = scopeParamType.Append(paramTypeAware)
 		}
 
 		// Count min args count.
@@ -563,7 +571,7 @@ func (d *rootWalker) parseFuncParams(params []ir.Node, docblockParams phpdoctype
 			minArgs++
 		}
 
-		sc.AddVarName(paramVar.Name, paramType, "param", meta.VarAlwaysDefined)
+		sc.AddVarName(paramVar.Name, scopeParamType, "param", meta.VarAlwaysDefined)
 
 		parsedParams = append(parsedParams, meta.FuncParam{
 			Name:  paramVar.Name,
